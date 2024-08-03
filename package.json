@@ -3,14 +3,10 @@
 	"version": "1.0.0",
 	"main": "aztu-api.js",
 	"type": "module",
-	"scripts": {
-		"test": "echo \"Error: no test specified\" && exit 1",
-		"start": "node server.js"
-	},
-	"keywords": [],
+	"keywords": ["API", "AzTU", "student", "education", "authentication", "tough-cookie", "axios", "cheerio"],
 	"author": "Amin Baghiyev",
 	"license": "ISC",
-	"description": "",
+	"description": "API written for retrieving student data from AzTU's Electronic Education Management System (KOICA) using student ID and password",
 	"dependencies": {
 		"axios": "^1.7.2",
 		"axios-cookiejar-support": "^5.0.2",
