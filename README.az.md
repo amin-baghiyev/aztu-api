@@ -1,23 +1,23 @@
 # AzTU API
 
-API written for retrieving student data from AzTU's Electronic Education Management System (KOICA) using student ID and password.
+AzTU-nun Elektron Təhsil İdarəetmə Sistemindən (KOICA) tələbənin ID və şifrəsi istifadə edilərək tələbə məlumatlarının əldə edilməsi üçün yazılmış API.
 
-## Instructions for use
+## İstifadə qaydası
 
 ```js
-aztu.login() // Logging in to the system
-aztu.getStudentInfo() // Return information about the student
-aztu.getTranscript() // Return transcript
-aztu.getCurrentLectures() // Return information about the subjects of the current semester
+aztu.login() // Sistemə giriş olunur
+aztu.getStudentInfo() // Tələbə haqqında məlumatları verir
+aztu.getTranscript() // Transkripti verir
+aztu.getCurrentLectures() // Hal-hazırki semestrın fənləri haqqında məlumat verir
 ```
 
-## Example
+## Nümunə
 
 ``` js
 //index.js
 import AzTU from "./aztu-api.js";
 
-const user = { UserId: "Username", Password: "Password" }; // The student's information is entered
+const user = { UserId: "İstifadəçi adı", Password: "Şifrə" }; // Tələbənin məlumatları daxil edilir
 
 const aztu = new AzTU(user);
 aztu.login()
@@ -25,7 +25,7 @@ aztu.login()
 ```
 
 ``` js
-// Response:
+// Cavab:
 {
   student: {
     typeOfEdu: 'Dövlət sifarişli',
@@ -54,10 +54,10 @@ aztu.login()
 }
 ```
 
-## License
+## Lisenziya
 
-See the [LICENSE](LICENSE.md) file for license rights and restrictions. (ISC)
+Lisenziya hüquqları və məhdudiyyətləri üçün [LICENSE](LICENSE.md) faylına baxın. (ISC)
 
-## Other languages
+## Digər dillər
 
-[🇦🇿 Azerbaijani](README.az.md)
+[🇺🇸 İngiliscə](README.md)
