@@ -3,10 +3,18 @@
 	"version": "1.0.0",
 	"main": "aztu-api.js",
 	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/amin-baghiyev/aztu-api.git"
+	},
 	"keywords": ["API", "AzTU", "student", "education", "authentication", "tough-cookie", "axios", "cheerio"],
 	"author": "Amin Baghiyev",
 	"license": "ISC",
 	"description": "API written for retrieving student data from AzTU's Electronic Education Management System (KOICA) using student ID and password",
+	"bugs": {
+		"url": "https://github.com/amin-baghiyev/aztu-api/issues"
+	},
+	"homepage": "https://github.com/amin-baghiyev/aztu-api#readme",
 	"dependencies": {
 		"axios": "^1.7.2",
 		"axios-cookiejar-support": "^5.0.2",
