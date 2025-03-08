@@ -1,187 +1,151 @@
-import axios from 'axios';
-import axiosCookieJarSupport from 'axios-cookiejar-support';
-import { CookieJar } from 'tough-cookie';
-import cheerio from 'cheerio';
+import Parser from './parser.js';
+import https from 'https';
 
 export default class AzTU {
+	#cookies;
+	#pages;
+	#paths;
+
 	constructor(user) {
 		this.user = user;
-		this.cookies = {};
-		axiosCookieJarSupport.wrapper(axios);
-		this.axios = axios.create({ jar: new CookieJar() });
-		this.pages = {};
-		this.paths = {
-			home: 'telebe',
+		this.#cookies = {};
+		this.#pages = {};
+		this.#paths = {
+			base: 'https://sap.aztu.edu.az/',
+			home: 'telebe/',
 			announcement: 'studies/notice.php',
 			studentInfo: 'telebe/info/student_view.php',
 			schedule: 'studies/lecture_time.php',
 			transcript: 'telebe/score_view.php',
-			currentLectures: 'studies/lecture_score.php',
+			lectures: 'studies/lecture_score.php',
 			subjects: []
 		};
 	}
 
 	async login() {
-		try {
-			// Login page
-			await this.axios.post('https://sso.aztu.edu.az/Home/Login', {
-				UserId: this.user.UserId,
-				Password: this.user.Password
-			}, {
-				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-				withCredentials: true
-			});
+		const login = await this.#request('https://sso.aztu.edu.az/Home/Login', 'POST', {
+			UserId: this.user.UserId,
+			Password: this.user.Password
+		});
 
-			const cookies = this.#getCookies(this.axios.defaults.jar.getCookiesSync('https://sso.aztu.edu.az/Home/Login'));
+		if (this.#cookies['ASP.NET_SessionId'] === undefined) throw new Error('Login failed');
 
-			if (!cookies.username) {
-				throw new Error('Login error');
-			}
+		const parser = new Parser(login);
+		const redirect = parser.find('a').eq(4).attr('href');
 
-			// Admin page
-			const adminResponse = await this.axios.get('https://sso.aztu.edu.az/Admin', {
-				headers: {
-					'Cookie': `ASP.NET_SessionId=${cookies['ASP.NET_SessionId']}; username=${cookies.username}`
-				},
-				withCredentials: true
-			});
+		await this.#request(redirect, 'GET', {}, false);
 
-			const $ = cheerio.load(adminResponse.data);
-			const redirectLoginURL = $('a').eq(4).attr('href');
-
-			// From Admin page to sap.aztu.edu.az
-			await this.axios.get(redirectLoginURL, {
-				headers: {
-					'Cookie': `ASP.NET_SessionId=${cookies['ASP.NET_SessionId']}; username=${cookies.username}`
-				},
-				withCredentials: true
-			});
-
-			this.cookies.PHPSESSID = this.#getCookies(this.axios.defaults.jar.getCookiesSync(redirectLoginURL)).PHPSESSID;
-
-		} catch (error) {
-			throw new Error(`Login failed: ${error.message}`);
-		}
+		if (this.#cookies.PHPSESSID === undefined) throw new Error('Login failed');
 	}
 
-	async getStudentInfo() {
-		await this.goTo('studentInfo');
-		const $ = cheerio.load(this.pages.studentInfo);
+	async studentInfo() {
+		if (this.#pages.studentInfo === undefined) await this.#load('studentInfo');
 
-		const response = {
-			student: {
-				typeOfEdu: $('.ng-binding').eq(0).text().trim(),
-				formOfEdu: $('.ng-binding').eq(2).text().trim(),
-				section: $('.ng-binding').eq(3).text().trim(),
-				faculty: $('.ng-binding').eq(4).text().trim(),
-				department: $('.ng-binding').eq(5).text().trim(),
-				specialty: $('.ng-binding').eq(6).text().trim(),
-				year: $('.ng-binding').eq(8).text().trim(),
-				status: $('.ng-binding').eq(9).text().trim(),
-				admission: $('.ng-binding').eq(12).text().trim(),
-				graduation: $('.ng-binding').eq(13).text().trim()
-			},
-			personal: {
-				name: $('.card-body').eq(1).find('p').eq(1).text().trim(),
-				surname: $('.card-body').eq(1).find('p').eq(2).text().trim(),
-				fatherName: $('.card-body').eq(1).find('p').eq(3).text().trim(),
-				gender: $('.card-body').eq(1).find('p').eq(4).text().trim(),
-				mobile: $('.card-body').eq(1).find('p').eq(7).text().trim()
-			},
-			exam: {
-				studentID: $('.card-body').eq(2).find('p').eq(0).text().trim(),
-				verbalPassword: $('.card-body').eq(2).find('p').eq(1).text().trim(),
-				testPassword: $('.card-body').eq(2).find('p').eq(2).text().trim()
-			}
+		const parser = new Parser(this.#pages.studentInfo);
+
+		return {
+			student: parser.find('tr').dictionarySingle('td'),
+			personal: parser.find('div', 'card-body').eq(0).fixHTML().dictionaryPair('strong', 'p'),
+			exam: parser.find('div', 'card-body').eq(1).dictionaryPair('strong', 'p')
+		};
+	}
+
+	async transcript() {
+		if (this.#pages.transcript === undefined) await this.#load('transcript');
+
+		const parser = new Parser(this.#pages.transcript);
+		const tables = parser.find('table');
+		const semesters = tables.eq(1).dictionaryMultiple('th', 'td');
+
+		const data = {
+			semesters: {},
+			...tables.eq(0).dictionaryPair('th', 'td'),
+			...Object.fromEntries(Object.entries(semesters.at(-1)).slice(1))
 		};
 
-		return response;
-	}
+		for (let i = 2; i < tables.count; i++) {
+			const subjects = tables.eq(i).dictionaryMultiple('th', 'td');
+			const info = semesters[i - 2];
 
-	async getTranscript() {
-		let data = {
-			semesters: {
-				'Toplam': {}
-			}
-		}
-		await this.goTo('transcript');
-		const $ = cheerio.load(this.pages.transcript);
-		const tables = $('table');
-		for (let i = 0; i < tables.eq(0).find('th').length; i++) {
-			data[cheerio.text(tables.eq(0).find('th').eq(i)).trim()] = cheerio.text(tables.eq(0).find('td').eq(i)).trim();
-		}
-
-		for (let table = 2; table < tables.length; table++) {
-			let semester = {
-				'Fənnlər': []
-			};
-			for (let row = 1; row < tables.eq(table).find('tr').length; row++) {
-				let subject = {};
-				for (let cell = 0; cell < tables.eq(table).find('th').length; cell++) {
-					subject[cheerio.text(tables.eq(table).find('th').eq(cell)).trim()] = cheerio.text(tables.eq(table).find('tr').eq(row).find('td').eq(cell)).trim();
-				}
-				semester['Fənnlər'].push(subject);
-			}
-			for (let cell = 1; cell < tables.eq(1).find('th').length; cell++) {
-				semester[cheerio.text(tables.eq(1).find('th').eq(cell)).trim()] = cheerio.text(tables.eq(1).find('tr').eq(table - 1).find('td').eq(cell)).trim();
-			}
-			data.semesters[cheerio.text(tables.eq(1).find('tr').eq(table - 1).find('td').eq(0)).trim()] = semester;
-		}
-
-		for (let cell = 1; cell < tables.eq(1).find('th').length; cell++) {
-			data.semesters['Toplam'][cheerio.text(tables.eq(1).find('th').eq(cell)).trim()] = cheerio.text(tables.eq(1).find('tr').eq(tables.eq(1).find('tr').length - 1).find('td').eq(cell)).trim();
+			data.semesters[info[Object.keys(info)[0]]] = { 'Fənnlər': [...subjects], ...info };
 		}
 
 		return data;
 	}
 
-	async getCurrentLectures() {
-		let currentLectures = [];
-		await this.setSubjects();
-		if (!this.paths.subjects.length) throw 'No subjects found';
-		for (const subject of this.paths.subjects) {
-			let data = {
-				'Fənn': subject.name,
-			};
-			await this.goTo('currentLectures', subject.path);
-			const $ = cheerio.load(this.pages.currentLectures);
-			const score = $('#toplam_score').eq(0).find('td');
-			for (let i = 0; i < score.length / 2; i++) {
-				data[cheerio.text(score[i].children)] = cheerio.text(score[i + (score.length / 2)].children);
-			}
-			currentLectures.push(data);
-		}
-		return currentLectures;
+	async lectures() {
+		if (this.#paths.subjects.length === 0) await this.#initialSubjects();
+
+		await Promise.all(this.#paths.subjects.map(subject => this.#load('lectures', subject.path, subject.name)));
+		return this.#paths.subjects.map(subject => {
+			const parser = new Parser(this.#pages[subject.name]);
+			const score = parser.array('td');
+			return score.slice(0, score.length / 2).reduce((data, td, i) => {
+				data[td.text()] = score[i + score.length / 2].text();
+				return data;
+			}, { 'Fənn': subject.name });
+		});
 	}
 
-	async setSubjects() {
-		this.paths.subjects = [];
-		await this.goTo('home');
-		const $ = cheerio.load(this.pages.home);
-		const subjects = $('.custom-submenu').eq(0).find('a');
+	async #initialSubjects() {
+		const response = await this.#request('https://sap.aztu.edu.az/telebe/', 'GET', {}, false);
+		const parser = new Parser(response);
+		const subjects = parser.find('ul', 'custom-submenu').array('a');
 		for (let i = 0; i < subjects.length; i++) {
-			this.paths.subjects.push({
-				name: subjects[i].children[0].data.trim(),
-				path: subjects[i].attribs.href.split('?')[1].replace('cd', 'code')
+			this.#paths.subjects.push({
+				name: subjects[i].text(),
+				path: subjects[i].attr('href').split('?')[1].replace('cd', 'code')
 			});
 		}
 	}
 
-	async goTo(path, query = '') {
-		try {
-			const response = await this.axios.get(`https://sap.aztu.edu.az/${this.paths[path]}?${query}`, {
+	async #request(url, method = 'GET', data = {}, followRedirect = true) {
+		return new Promise((resolve, reject) => {
+			const postData = method === 'POST' ? new URLSearchParams(data).toString() : '';
+			const fullUrl = new URL(url);
+			const options = {
+				hostname: fullUrl.hostname,
+				port: fullUrl.port || 443,
+				path: fullUrl.pathname + fullUrl.search,
+				method: method,
 				headers: {
-					'X-Pjax': true,
-					'Cookie': `PHPSESSID=${this.cookies.PHPSESSID}`
-				},
-				withCredentials: true
-			});
+					'Content-Type': 'application/x-www-form-urlencoded',
+					'Content-Length': method === 'POST' ? Buffer.byteLength(postData) : 0,
+					'Cookie': this.#getCookieHeader(),
+					'X-Pjax': true
+				}
+			};
 
-			this.pages[path] = response.data;
-		} catch (error) {
-			throw new Error(`${path} page request failed: ${error.message}`);
-		}
+			if (method === 'GET' && data && Object.keys(data).length > 0) options.path = `${fullUrl.pathname}?${new URLSearchParams(data).toString()}`;
+
+			const req = https.request(options, (res) => {
+				let data = '';
+				res.on('data', chunk => data += chunk);
+
+				res.on('end', () => {
+					if (res.headers['set-cookie'] !== undefined) {
+						const cookies = this.#getCookies(res.headers['set-cookie']);
+						this.#cookies = { ...this.#cookies, ...cookies };
+					}
+					if (res.statusCode >= 300 && res.statusCode < 400 && res.headers['location'] && followRedirect) {
+						const redirectUrl = res.headers['location'].startsWith('http') ? res.headers['location'] : fullUrl.origin + res.headers['location'];
+						resolve(this.#request(redirectUrl));
+					} else {
+						resolve(data);
+					}
+				});
+			});
+			if (method === 'POST') req.write(postData);
+
+			req.on('error', e => reject(`Request failed: ${e.message}`));
+
+			req.end();
+		});
 	}
+
+	async #load(path, query = '', key = null) { this.#pages[key ?? path] = await this.#request(`${this.#paths.base}${this.#paths[path]}?${query}`, 'GET', {}, false); }
+
+	#getCookieHeader() { return Object.entries(this.#cookies).map(([key, value]) => `${key}=${value}`).join('; '); }
 
 	#getCookies(rawCookies) {
 		const cookies = {};
